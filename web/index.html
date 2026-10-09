@@ -1,0 +1,102 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Say the Word • Generator</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#0c1020;color:#edf2ff;font:16px system-ui}main{max-width:1250px;margin:auto;padding:36px}h1{font-size:38px;margin:0}p{color:#a7b6ce}section{background:#171f34;border:1px solid #303b55;padding:24px;border-radius:18px;margin:20px 0}label{display:inline-block;margin:8px 20px 8px 0}input,button,select{font:inherit;padding:10px;border-radius:8px;border:1px solid #45536f;background:#222e47;color:white}input[type=number]{width:95px}button{cursor:pointer;background:#75efc3;color:#102322;font-weight:700;margin:5px}button:disabled{opacity:.45;cursor:wait}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card{min-width:0;background:#222e47;border-radius:12px;padding:12px}.card img{width:100%;height:100px;object-fit:contain}.card input{width:100%;margin-top:8px;font-size:13px}#preview{width:100%;aspect-ratio:16/9;object-fit:contain;background:#101529;border-radius:12px}#status{white-space:pre-wrap;color:#75efc3}a{color:#75efc3}.hint{font-size:14px}audio{width:100%}@media(max-width:800px){.cards{grid-template-columns:repeat(2,1fr)}}</style>
+<main><p>LOCAL VIDEO STUDIO · 1920 × 1080 · 30 FPS</p><h1>Say the Word on Beat</h1><button id="demo">Заполнить тестовыми файлами</button><span class="hint"> Заменит выбранную музыку и 8 картинок.</span><p>Загрузите музыку, подберите 8 картинок и произнесите слова в ритм.</p>
+<section><h2>1. Музыка и ритм</h2><input id="audioFile" type="file" accept="audio/*"><p><audio id="audio" controls></audio></p><label>BPM <input id="bpm" type="number" min="30" max="300" value="120"></label><button id="tap">Отбить BPM</button><label>Первый бит, сек <input id="offset" type="number" min="0" step="0.01" value="0"></label><p class="hint">Укажите время первого сильного удара в исходной музыке. Экспорт начнётся с этой позиции. BPM задаётся вручную; автоматического распознавания пока нет.</p></section>
+<section><h2>2. Восемь карточек</h2><p>Сетка 4×2: карточки появляются по очереди, затем зелёная рамка проходит по ним под бит.</p><label>Фон (необязательно) <input id="background" type="file" accept="image/png,image/jpeg,image/webp"></label><div id="cards" class="cards"></div></section>
+<section><h2>3. Оформление</h2><p>Фон, стикеры и переходы попадут и в предпросмотр, и в MP4.</p>
+<label>Тема <select id="theme"><option value="paper">Бумага · тёплый фон</option><option value="night">Ночь · неоновое свечение</option><option value="candy">Конфетти · пастельные цвета</option></select></label>
+<label>Подсветка <input id="accent" type="color" value="#32dc74"></label>
+<label>Переходы <select id="transition"><option value="fade">Плавное растворение</option><option value="cut">Мгновенная смена</option></select></label>
+<label><input id="decor" type="checkbox" checked> Стикеры по краям</label>
+<div><label>Стикер 1 <input id="sticker0" type="file" accept="image/png,image/webp,image/jpeg"></label><label>Стикер 2 <input id="sticker1" type="file" accept="image/png,image/webp,image/jpeg"></label></div>
+<p class="hint">Без загрузки — звёздочка и значок ритма. Для своих стикеров лучше PNG с прозрачным фоном. Стикеры слегка покачиваются. Загруженный фон заменяет фон темы. Переход применяется между заставками и этапами; попадание карточек в бит остаётся резким.</p></section>
+<section><h2>4. Уровни и анимация</h2><label>Эффект <select id="style"><option value="grid">Как в образце: сетка + появление + зелёная рамка</option><option value="static">Старый режим: одна картинка</option></select></label><label><select id="mode"><option value="mvp">MVP — Easy, 8 секций</option><option value="full">Все 5 уровней — 40 секций</option></select></label><div id="beats"></div><p class="hint">Числа — биты на одну карточку. В режиме сетки: отсчёт 3 бита, заставка 2 бита, 8 появлений и 8 подсветок на уровень. При BPM 120 один бит = 0,5 секунды. Если музыка короче видео, оставшаяся часть будет без звука.</p></section>
+<section><h2>5. Предпросмотр и MP4</h2><button id="prepare">Подготовить предпросмотр</button><button id="play" disabled>▶ Смотреть с музыкой</button><button id="pause" disabled>Пауза</button><button id="stop">В начало</button><button id="render" disabled>Экспорт MP4</button><p id="status">Добавьте музыку и 8 изображений.</p><canvas id="preview" width="1920" height="1080" aria-label="Анимированный предпросмотр"></canvas><label style="display:block">Позиция <input id="timeline" type="range" min="0" max="0" step="0.033333" value="0" disabled style="width:75%"><span id="timeLabel">0:00 / 0:00</span></label><p id="download"></p></section></main>
+<script>
+const $=id=>document.getElementById(id), levels=['Easy','Normal','Hard','Expert','Insane'];let job=null,playing=false,stamp=0,taps=[],audioURL,assets={},run=0,position=0,silentStart=null;
+for(let i=0;i<8;i++)$('cards').insertAdjacentHTML('beforeend',`<div class="card"><b>${i+1}</b><img id="thumb${i}" alt="Картинка ${i+1}"><input id="image${i}" type="file" accept="image/png,image/jpeg,image/webp"><input id="word${i}" placeholder="Слово ${i+1}" maxlength="80"></div>`);
+levels.forEach((l,i)=>$('beats').insertAdjacentHTML('beforeend',`<label>${l} <input id="beat${i}" type="number" min="0.25" max="32" step="0.25" value="${[1,1,.75,.5,.5][i]}"></label>`));
+function halt(){run++;playing=false;$('audio').pause();$('pause').disabled=true;silentStart=null;}
+function invalidate(){halt();job=null;position=0;$('timeline').disabled=true;$('status').textContent='Настройки изменены — подготовьте предпросмотр заново.';$('play').disabled=true;$('render').disabled=true;$('download').textContent='';}
+document.querySelectorAll('input:not(#timeline),select').forEach(e=>e.addEventListener('change',invalidate));
+for(let i=0;i<8;i++)$('image'+i).addEventListener('change',async()=>{const f=$('image'+i).files[0];if(f){$('thumb'+i).src=await data(f);if(!$('word'+i).value)$('word'+i).value=f.name.replace(/\.[^.]+$/,'');}});
+$('audioFile').onchange=()=>{if(audioURL)URL.revokeObjectURL(audioURL);if($('audioFile').files[0]){$('audio').src=audioURL=URL.createObjectURL($('audioFile').files[0]);}};
+$('theme').onchange=()=>{$('accent').value={paper:'#32dc74',night:'#ab83ff',candy:'#f06aac'}[$('theme').value];};
+$('tap').onclick=()=>{let now=performance.now();if(taps.length&&now-taps.at(-1)>2500)taps=[];taps.push(now);taps=taps.slice(-9);if(taps.length>1){$('bpm').value=Math.max(30,Math.min(300,Math.round(60000*(taps.length-1)/(now-taps[0]))));invalidate();}};
+function data(file){return new Promise((resolve,reject)=>{if(!file)return reject(Error('Выберите музыку и все 8 картинок'));const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);});}
+async function api(path,body){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json();if(!r.ok||j.error)throw Error(j.error||'Ошибка');return j;}
+function drawScene(t,c){
+ if(!job)return;
+ const f=job.frames.find(f=>t>=f.start&&t<f.end)||job.frames.at(-1);
+ if(job.style!=='grid'){const im=assets[f.file];if(im)c.drawImage(im,0,0,1920,1080);return;}
+ c.drawImage(assets.background,0,0,1920,1080);
+ if(job.decor){for(const [n,[x,y]] of [[30,65],[1740,70],[28,445],[1742,450],[30,835],[1740,840]].entries()){
+ c.save();c.translate(x+90,y+90+Math.round(7*Math.sin(t*2+n)));c.rotate(-4*Math.sin(t*2.4+n)*Math.PI/180);c.drawImage(assets['sticker'+n%2],-90,-90,180,180);c.restore();}}
+ const colors=job.colors||{background:'#f3eee5',ink:'#252531',muted:'#666474',accent:'#32dc74'};
+ c.textAlign='center';c.textBaseline='middle';
+ const pulse=Math.exp(-Math.max(0,t-f.start)*12);
+ function text(s,x,y,size,color){c.font=`bold ${size}px Arial`;c.fillStyle=color;c.fillText(s,x,y);}
+ if(f.kind==='countdown'||f.kind==='title'){
+ c.fillStyle=colors.background;c.beginPath();c.roundRect(300,170,1320,730,65);c.fill();text('SAY THE WORD ON BEAT',960,280,64,colors.ink);
+ text(f.kind==='countdown'?f.number:f.level.toUpperCase(),960,550,Math.round((f.kind==='countdown'?240:140)*(1+.1*pulse)),colors.accent);
+ text(f.kind==='countdown'?'GET READY':'SAY IT ON THE BEAT',960,800,45,colors.ink);return;
+ }
+ text(f.level.toUpperCase(),960,105,68,colors.ink);text(f.kind==='reveal'?'WATCH':'YOUR TURN',960,185,34,colors.muted);
+ for(let i=0;i<8;i++){
+ if(f.kind==='reveal'&&i>f.index)continue;
+ let scale=i===f.index?1+.055*pulse:1;if(f.kind==='reveal'&&i===f.index)scale*=1-.16*pulse;
+ const w=Math.round(330*scale),h=Math.round(350*scale),x=270+i%4*350+Math.floor((330-w)/2),y=270+Math.floor(i/4)*380+Math.floor((350-h)/2);
+ c.drawImage(assets['tile'+i],x,y,w,h);
+ if(f.kind==='play'&&i<=f.index){c.strokeStyle=colors.accent;c.lineWidth=10;c.strokeRect(x+5,y+5,w-10,h-10);}
+ }
+}
+const stage=document.createElement('canvas');stage.width=1920;stage.height=1080;
+function show(t){
+ if(!job)return;t=Math.floor(Math.max(0,Math.min(t,job.duration-1/30))*30)/30;
+ $('timeline').value=t;$('timeLabel').textContent=clock(t)+' / '+clock(job.duration);
+ const c=$('preview').getContext('2d'),f=job.frames.find(f=>t>=f.start&&t<f.end)||job.frames.at(-1);
+ drawScene(t,c);
+ if(job.style==='grid'&&job.transition==='fade'&&f.start>0){
+ const before=job.frames.find(f0=>f.start-1/30>=f0.start&&f.start-1/30<f0.end),length=Math.min(.25,(f.end-f.start)/2);
+ if(before&&before.kind!==f.kind&&t-f.start<length){let a=Math.max(0,(t-f.start)/length);a=a*a*(3-2*a);drawScene(f.start-1/30,stage.getContext('2d'));c.globalAlpha=1-a;c.drawImage(stage,0,0);c.globalAlpha=1;}
+ }
+}
+async function loadAssets(){assets={};const names=job.style==='grid'?['background',...(job.decor?['sticker0','sticker1']:[]),...Array.from({length:8},(_,i)=>'tile'+i)]:job.frames.map(f=>f.file);await Promise.all(names.map(name=>new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>{assets[name]=im;resolve();};im.onerror=()=>reject(Error('Не удалось загрузить кадры'));im.src='/data/'+job.id+'/'+name+(job.style==='grid'?'.png':'');})));}
+function clock(t){return Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');}
+function busy(b){document.querySelectorAll('input:not(#timeline),select,#tap,#demo').forEach(e=>e.disabled=b);$('timeline').disabled=b||!job;$('prepare').disabled=b;$('render').disabled=b||!job;$('play').disabled=b||!job;}
+$('prepare').onclick=async()=>{halt();job=null;busy(true);$('download').textContent='';$('status').textContent='Готовлю анимацию…';try{const items=[];for(let i=0;i<8;i++)items.push({word:$('word'+i).value,image:(await data($('image'+i).files[0])).split(',')[1]});job=await api('/api/prepare',{audio:(await data($('audioFile').files[0])).split(',')[1],items,theme:$('theme').value,accent:$('accent').value,decor:$('decor').checked,transition:$('transition').value,stickers:await Promise.all([0,1].map(async i=>$('sticker'+i).files[0]?(await data($('sticker'+i).files[0])).split(',')[1]:null)),style:$('style').value,background:$('background').files[0]?(await data($('background').files[0])).split(',')[1]:null,bpm:$('bpm').value,offset:$('offset').value,beats:levels.map((_,i)=>$('beat'+i).value),full:$('mode').value==='full'});await loadAssets();position=0;$('timeline').max=job.duration;show(0);$('status').textContent=`Готово: ${job.style==='grid'?'Анимация сетки':job.frames.length+' секций'}, ${job.duration.toFixed(2)} сек.`;}catch(e){$('status').textContent=e.message;}finally{busy(false);}};
+async function startPreview(){
+ if(!job)return;halt();const token=run;
+ try{
+ if(!Number.isFinite($('audio').duration))throw Error('Аудио ещё не готово. Дождитесь загрузки или выберите WAV/MP3.');
+ if($('audio').duration<=job.offset)throw Error('Первый бит находится после конца аудио');
+ if(position>=job.duration-1/30)position=0;
+ const source=job.offset+position;
+ if(source<$('audio').duration){$('audio').currentTime=source;await $('audio').play();}
+ else silentStart={time:performance.now(),position};
+ if(token!==run){$('audio').pause();return;}
+ playing=true;$('pause').disabled=false;tick(token);
+ }catch(e){$('status').textContent=e.message;}
+}
+$('play').onclick=startPreview;
+function tick(token){
+ if(!playing||token!==run)return;
+ if($('audio').ended&&!silentStart)silentStart={time:performance.now(),position:Math.max(position,$('audio').duration-job.offset)};
+ position=silentStart?silentStart.position+(performance.now()-silentStart.time)/1000:Math.max(0,$('audio').currentTime-job.offset);
+ show(position);if(position>=job.duration){position=job.duration;halt();return;}
+ requestAnimationFrame(()=>tick(token));
+}
+$('pause').onclick=()=>halt();
+$('stop').onclick=()=>{halt();position=0;show(0);};
+$('timeline').oninput=()=>{halt();position=Number($('timeline').value);show(position);};
+$('render').onclick=async()=>{halt();busy(true);$('download').textContent='';try{await api('/api/render',{id:job.id});while(true){await new Promise(r=>setTimeout(r,1000));const j=await(await fetch('/api/job/'+job.id)).json();$('status').textContent=`Экспорт: ${j.progress}%`;if(j.status==='error')throw Error(j.error);if(j.status==='done'){$('status').textContent='MP4 готов: 1920×1080, H.264 + AAC.';$('download').innerHTML=`<a href="/data/${job.id}/video.mp4" download>Скачать MP4</a>`;break;}}}catch(e){$('status').textContent=e.message;}finally{busy(false);}};
+$('demo').onclick=async()=>{
+ halt();busy(true);$('status').textContent='Загружаю тестовые файлы…';
+ try{for(const [id,name,type] of [['audioFile','120-bpm.wav','audio/wav'],...Array.from({length:8},(_,i)=>['image'+i,(i+1)+'.png','image/png'])]){
+ const r=await fetch('/demo/'+name);if(!r.ok)throw Error('Нет тестового файла '+name);
+ const dt=new DataTransfer();dt.items.add(new File([await r.blob()],name,{type}));$(id).files=dt.files;$(id).dispatchEvent(new Event('change'));
+ }for(let i=0;i<8;i++)$('word'+i).value=String(i+1);$('bpm').value=120;$('offset').value=0;
+ $('status').textContent='Тестовые файлы загружены. Выберите тему и подготовьте предпросмотр.';
+ }catch(e){$('status').textContent=e.message;}finally{busy(false);}
+};
+</script></html>
